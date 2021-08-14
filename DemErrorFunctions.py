@@ -13,6 +13,21 @@ from matplotlib import pyplot as plt
 import matplotlib.colors as mplcol
 
 
+# %% DEM LOADING AND CLIPPING FUNCTIONS
+
+def convert_wgs_to_utm(lon: float, lat: float):
+    """Based on lat and lng, return best utm epsg-code
+    https://stackoverflow.com/a/40140326/4556479"""
+    utm_band = str((math.floor((lon + 180) / 6 ) % 60) + 1)
+    if len(utm_band) == 1:
+        utm_band = '0'+utm_band
+    if lat >= 0:
+        epsg_code = '326' + utm_band
+        return epsg_code
+    epsg_code = '327' + utm_band
+    return epsg_code
+
+
 def getDEMtiles(dem, tile_size_km):
     """
     Loads a full DEM and produces a list of tile coordinates for generating 
@@ -128,6 +143,8 @@ def loadDEMclip(dem, xx, yy, tile_size_px):
 
     return el
 
+
+# %% SLOPE, ASPECT, HILLSHADE, and HPHS FUNCTIONS
 
 def np_slope(z, d):
     """
@@ -328,6 +345,8 @@ def HPHS_diff_spacing(el, xspace, yspace, kernel, azimuths, angles):
 
     return hphs, hs
 
+
+# %% POLYNOMIAL FITTING FUNCTIONS
 
 def plane_fit_RMSE(points):
     """
@@ -565,48 +584,47 @@ def curvFit_lstsq_polynom(points, order=2):
             p2_C, p2_dz, p2_rmse, p2_slope, p2_aspect, p2_Curvature, p2_curv_contour, p2_curv_tan, p2_curv_profc, \
             p4_C, p4_dz, p4_rmse, p4_slope, p4_aspect, p4_Curvature, p4_curv_contour, p4_curv_tan, p4_curv_profc 
 
-# %%
 
-def truncate_colormap(cmap, minval=0.0, maxval=1.0, n=100):
-    new_cmap = mplcol.LinearSegmentedColormap.from_list(
-        'trunc({n},{a:.2f},{b:.2f})'.format(n=cmap.name, a=minval, b=maxval),
-        cmap(np.linspace(minval, maxval, n)))
-    return new_cmap
+# %% DFT FUNCTIONS
 
-def CalculateChannelSlope(pts_array, slope_window_size=5):
-    """
-    Clubb 2019 - JGR:ES
-    Modified from: https://github.com/UP-RS-ESP/river-clusters/blob/master/clustering.py
-    """
-
-    grad = np.empty(len(pts_array))
-    slicer = (slope_window_size - 1)/2
-
-    for index, x in enumerate(pts_array):
-        start_idx = index-slicer
-        if start_idx < 0:
-            start_idx=0
-        end_idx = index+slicer+1
-        if end_idx > len(pts_array):
-            end_idx = len(pts_array)
-        # find the rows above and below relating to the window size. We use whatever nodes
-        # are available to not waste the data.
-        this_slice = pts_array[int(start_idx):int(end_idx)]
-        # now regress this slice
-        x = this_slice[:,0]
-        y = this_slice[:,1]
-        slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
-        grad[index] = abs(slope)
-
-    return grad
-
-# %%
-
-
-
-# %%
 def doDFT(arr, step):
-    # https://github.com/bpurinton/DEM-FFT/blob/master/example_analysis.ipynb
+    """
+    This is the main DFT function, it was originally inspired from and translated
+    from the Matlab version by Taylor Perron here: http://web.mit.edu/perron/www/downloads.html
+    
+    References:
+    
+    Perron, J. T., Kirchner, J. W., and Dietrich, W. E. (2008). Spectral signatures 
+    of characteristic spatial scales and nonfractal structure in landscapes.
+    Journal of Geophysical Research 113.  doi:10.1029/2007JF000866
+    
+    Purinton, B. and Bookhagen, B. (2017).  Validation of digital elevation models 
+    (dems) and comparison of geomorphic metrics on the southern central andean plateau.
+    Earth Surface Dynamics 5, 211–237. doi:10.5194/esurf-5-211-2017
+
+    Parameters
+    ----------
+    arr : numpy array
+        Input array, could be HPHS grid, elevation grid, or anything else.
+    step : float
+        Pixel size of input.
+
+    Returns
+    -------
+    f1d : numpy array
+        Radial frequency in 1D.
+    f2d : numpy array
+        Radial frequency in 2D.
+    p1d : numpy array
+        Power in 1D.
+    p2d : numpy array
+        Power in 2D.
+    F_ang1d : numpy array
+        Orientation in 1D.
+    F_ang2d : numpy array
+        Orientation in 2D.
+
+    """
     ny, nx = arr.shape
 
     # fit plane and remove trend
@@ -698,10 +716,48 @@ def doDFT(arr, step):
     return f1d, f2d, p1d, p2d, F_ang1d, F_ang2d
 
 
+
 def fftNorm(f1d, f2d, p1d, p2d, bins=20):
+    """
+    This is 1D power-law fit DFT normalization function.
+    
+    References:
+    
+    Purinton, B. and Bookhagen, B. (2017).  Validation of digital elevation models 
+    (dems) and comparison of geomorphic metrics on the southern central andean plateau.
+    Earth Surface Dynamics 5, 211–237. doi:10.5194/esurf-5-211-2017
+
+    Parameters
+    ----------
+    f1d : numpy array
+        Radial frequency in 1D.
+    f2d : numpy array
+        Radial frequency in 2D.
+    p1d : numpy array
+        Power in 1D.
+    p2d : numpy array
+        Power in 2D.
+    bins : int, optional
+        Number of bins for power-law fit. The default is 20.
+
+    Returns
+    -------
+    bin_center : numpy array
+        Bin centers for power-law fit.
+    bin_med : numpy array
+        Bin medians for power-law fit.
+    pl_fit : numpy array
+        Resulting power-law fit.
+    fit : numpy array
+        Coefficients of power-law fit.
+    p1d_norm : numpy array
+        Normalized 1D power.
+    p2d_norm : numpy array
+        Normalized 2D power.
+
+    """
 
     # bin the data using log bins
-    bins = 20
     f_bins = np.logspace(np.log10(f1d.min()), np.log10(f1d.max()), bins * 2 - 1)
     bin_med, edges, _ = stats.binned_statistic(f1d, p1d, statistic=np.nanmedian,
                                                bins=f_bins[::2])
@@ -726,566 +782,34 @@ def fftNorm(f1d, f2d, p1d, p2d, bins=20):
 
     return bin_center, bin_med, pl_fit, fit, p1d_norm, p2d_norm
 
-def plotDFT_blob(file_name, dem_name, slp_asp_label, label, f1d, p1d, bin_center, bin_med, pl_fit,
-            maxWVL, step, p1d_norm, p2d_norm, hphs_, maxP,
-            f2d, F_ang1d_maxP, wvl_maxP, s_wvl, s_power, skip_val_plot=1):
 
+# %% OTHER FUNCTIONS
 
-    fig, axes = plt.subplots(2, 2, figsize=(19.2, 10.8),
-                                           gridspec_kw={'left':0.1, 'right':0.95,
-                                                        'bottom':0.1, 'top':0.95})
-    ax1, ax2, ax3, ax4 = axes[0, 1], axes[1, 1], axes[0, 0], axes[1, 0]
-
-    # first plot the original 1D power specturm
-    ax1.loglog(1/f1d[::skip_val_plot][::-1], p1d[::skip_val_plot][::-1], '.', c='gray', alpha=0.5, markersize=3, Label="Power",
-              rasterized=True)
-    ax1.loglog(1/bin_center[::-1], bin_med[::-1], 'ko--', markersize=8, alpha=1,
-              label="Log bins at median")
-    ax1.loglog(1/bin_center[::-1], pl_fit[::-1], 'r-', lw=1, label="Power-law fit to bins")
-    # ax1.loglog(bin_center, foo, 'b-', lw=1.5, label="chi2")
-    ax1.set_xlim(maxWVL, step)
-    ax1.set_xticklabels(["{:,.0f}\n[{:g}]".format(a, 1/a) for a in ax1.get_xticks()])
-    ax1.set_xlabel('Wavelength (m) / [Frequency (m$^{-1}$)]', fontsize=12)
-    ax1.set_ylabel('Mean Squared Amplitude', fontsize=12)
-    # ax1.set_ylim(10**-8, 10**1)
-    ax1.grid(True, which="both")
-    ax1.legend(loc='lower left', fontsize=12)
-    # %
-    # then plot the normalized 1D power specturm
-    ax2.semilogx(1/f1d[::skip_val_plot][::-1], p1d_norm[::skip_val_plot][::-1], '.', c='gray', alpha=0.5, markersize=8, Label="Power",
-              rasterized=True)
-    ax2.set_ylim(0, p1d_norm.max())
-    ax2.set_xlim(maxWVL, step)
-    ax2.set_xticklabels(["{:,.0f}\n[{:g}]".format(a, 1/a) for a in ax2.get_xticks()])
-    ax2.set_xlabel('Wavelength (m) / [Frequency (m$^{-1}$)]', fontsize=12)
-    ax2.set_ylabel('Normalized Amplitude', fontsize=12)
-    ax2.text(1/f1d.max() * 4, p1d_norm.max()/2, 'Power (variance)\nat 1-{} pixels: {:.0f}%'.format(s_wvl, s_power*100),
-             bbox=dict(facecolor='w', edgecolor='k', pad=1, alpha=0.8), fontsize=12)
-    ax2.grid(True, which="both")
-    ax2.legend(loc='lower left', fontsize=12)
-    # %
-    # now plot the original
-    im = ax3.imshow(hphs_, cmap='cividis', interpolation='nearest', vmax=np.percentile(hphs_, 99.9))
-    cbar = plt.colorbar(im, ax=ax3, shrink=0.5)
-    cbar.set_label('HPHS', rotation=270, labelpad=20, fontsize=12)
-    # ax3.imshow(hs, cmap='Greys', alpha=0.1)
-    # these next lines add some labels
-    ax3.set_xticklabels(["{:.0f}".format(x * step) for x in ax3.get_xticks()])
-    ax3.set_yticklabels(["{:.0f}".format(y * step) for y in ax3.get_yticks()])
-    ax3.set_xlabel("West-East (m)", fontsize=12)
-    ax3.set_ylabel("North-South (m)", fontsize=12)
-    ax3.set_title('{}; BLOB {}, {}'.format(dem_name, label, slp_asp_label), fontsize=12)
-
-    # also plot the normalized 2D power spectrum
-    im = ax4.imshow(p2d_norm, interpolation='nearest', vmax=np.nanpercentile(p2d_norm, 99.99))
-    fig.colorbar(im, ax=ax4, label="Normalized Power (color to 99.99th perc.)")
-    ax4.set_xlabel("X Frequency (m$^{-1}$)", fontsize=12)
-    ax4.set_ylabel("Y Frequency (m$^{-1}$)", fontsize=12)
-    ax4.set_title('P$_{{max}}$ {:.0f}, Orientation {:.0f}$^\circ$, Wvl {:.0f} m'.format(maxP, abs(F_ang1d_maxP), wvl_maxP))
-    nfy, nfx = f2d.shape
-    nyq = f2d[nfy//2 + 1, 0]
-    n_labels = 8
-    ax4.set_xticks(np.linspace(1, nfx, n_labels))
-    ax4.set_yticks(np.linspace(1, nfy, n_labels))
-    ticks = ["{:.3f}".format(a) for a in np.linspace(-nyq, nyq, n_labels)]
-    ax4.set_xticklabels(ticks)
-    ax4.set_yticklabels(ticks)
-
-    fig.savefig(file_name, dpi=150)
-    plt.close()
-
-
-def plotDFT(file_name, dem_name, xx, yy, f1d, p1d, bin_center, bin_med, pl_fit,
-            maxWVL, step, p1d_norm, p2d_norm, hphs_, maxP,
-            f2d, F_ang1d_maxP, wvl_maxP, s_wvl, s_power, skip_val_plot=1):
-
-
-    fig, axes = plt.subplots(2, 2, figsize=(19.2, 10.8),
-                                           gridspec_kw={'left':0.1, 'right':0.95,
-                                                        'bottom':0.1, 'top':0.95})
-    ax1, ax2, ax3, ax4 = axes[0, 1], axes[1, 1], axes[0, 0], axes[1, 0]
-
-    # first plot the original 1D power specturm
-    ax1.loglog(1/f1d[::skip_val_plot][::-1], p1d[::skip_val_plot][::-1], '.', c='gray', alpha=0.5, markersize=3, Label="Power",
-              rasterized=True)
-    ax1.loglog(1/bin_center[::-1], bin_med[::-1], 'ko--', markersize=8, alpha=1,
-              label="Log bins at median")
-    ax1.loglog(1/bin_center[::-1], pl_fit[::-1], 'r-', lw=1, label="Power-law fit to bins")
-    # ax1.loglog(bin_center, foo, 'b-', lw=1.5, label="chi2")
-    ax1.set_xlim(maxWVL, step)
-    ax1.set_xticklabels(["{:,.0f}\n[{:g}]".format(a, 1/a) for a in ax1.get_xticks()])
-    ax1.set_xlabel('Wavelength (m) / [Frequency (m$^{-1}$)]', fontsize=12)
-    ax1.set_ylabel('Mean Squared Amplitude', fontsize=12)
-    # ax1.set_ylim(10**-8, 10**1)
-    ax1.grid(True, which="both")
-    ax1.legend(loc='lower left', fontsize=12)
-    # %
-    # then plot the normalized 1D power specturm
-    ax2.semilogx(1/f1d[::skip_val_plot][::-1], p1d_norm[::skip_val_plot][::-1], '.', c='gray', alpha=0.5, markersize=8, Label="Power",
-              rasterized=True)
-    ax2.set_ylim(0, p1d_norm.max())
-    ax2.set_xlim(maxWVL, step)
-    ax2.set_xticklabels(["{:,.0f}\n[{:g}]".format(a, 1/a) for a in ax2.get_xticks()])
-    ax2.set_xlabel('Wavelength (m) / [Frequency (m$^{-1}$)]', fontsize=12)
-    ax2.set_ylabel('Normalized Amplitude', fontsize=12)
-    ax2.text(1/f1d.max() * 4, p1d_norm.max()/2, 'Power (variance)\nat 1-{} pixels: {:.0f}%'.format(s_wvl, s_power*100),
-             bbox=dict(facecolor='w', edgecolor='k', pad=1, alpha=0.8), fontsize=12)
-    ax2.grid(True, which="both")
-    ax2.legend(loc='lower left', fontsize=12)
-    # %
-    # now plot the original
-    im = ax3.imshow(hphs_, cmap='cividis', interpolation='nearest', vmax=np.percentile(hphs_, 99.9))
-    cbar = plt.colorbar(im, ax=ax3, shrink=0.5)
-    cbar.set_label('HPHS', rotation=270, labelpad=20, fontsize=12)
-    # ax3.imshow(hs, cmap='Greys', alpha=0.1)
-    # these next lines add some labels
-    ax3.set_xticklabels(["{:.0f}".format(x * step) for x in ax3.get_xticks()])
-    ax3.set_yticklabels(["{:.0f}".format(y * step) for y in ax3.get_yticks()])
-    ax3.set_xlabel("West-East (m)", fontsize=12)
-    ax3.set_ylabel("North-South (m)", fontsize=12)
-    ax3.set_title('{}; TILE {}, {}'.format(dem_name, xx, yy), fontsize=12)
-
-    # also plot the normalized 2D power spectrum
-    im = ax4.imshow(p2d_norm, interpolation='nearest', vmax=np.nanpercentile(p2d_norm, 99.99))
-    fig.colorbar(im, ax=ax4, label="Normalized Power (color to 99.99th perc.)")
-    ax4.set_xlabel("X Frequency (m$^{-1}$)", fontsize=12)
-    ax4.set_ylabel("Y Frequency (m$^{-1}$)", fontsize=12)
-    ax4.set_title('P$_{{max}}$ {:.0f}, Orientation {:.0f}$^\circ$, Wvl {:.0f} m'.format(maxP, abs(F_ang1d_maxP), wvl_maxP))
-    nfy, nfx = f2d.shape
-    nyq = f2d[nfy//2 + 1, 0]
-    n_labels = 8
-    ax4.set_xticks(np.linspace(1, nfx, n_labels))
-    ax4.set_yticks(np.linspace(1, nfy, n_labels))
-    ticks = ["{:.3f}".format(a) for a in np.linspace(-nyq, nyq, n_labels)]
-    ax4.set_xticklabels(ticks)
-    ax4.set_yticklabels(ticks)
-
-    fig.savefig(file_name, dpi=150)
-    plt.close()
-
-# %% misc functions
-
-# def winVar(img, wlen):
-#   wmean, wsqrmean = (cv2.boxFilter(x, -1, (wlen, wlen),
-#     borderType=cv2.BORDER_REFLECT) for x in (img, img*img))
-#   return wsqrmean - wmean*wmean
-
-def window_stdev(arr, radius):
-    c1 = ndi.uniform_filter(arr, radius*2, mode='constant', origin=-radius)
-    c2 = ndi.uniform_filter(arr*arr, radius*2, mode='constant', origin=-radius)
-    return ((c2 - c1*c1)**.5)#[:-radius*2+1,:-radius*2+1]
-
-def sliding_std_dev(image_original,radius=5):
-    height, width = image_original.shape
-    result = np.zeros_like(image_original) # initialize the output matrix
-    hgt = range(radius,height-radius)
-    wdt = range(radius,width-radius)
-    for i in hgt:
-        for j in wdt:
-            result[i,j] = np.std(image_original[i-radius:i+radius,j-radius:j+radius])
-    return result
-
-def exportlas(fn, var, pts):
-    import laspy
-    from matplotlib.cm import magma as cmap
-    v = var - np.min(var)
-    v /= v.max()
-    rgb = cmap(v)
-    rgb = rgb[:, :3]
-    rgb *= 65535
-    rgb = rgb.astype('uint')
-    header = laspy.header.Header()
-    header.data_format_id = 2
-    f = laspy.file.File(fn, mode = 'w', header = header)
-    f.header.scale = [0.001, 0.001, 0.001]
-    f.header.offset = [pts[:,0].min(), pts[:,1].min(), pts[:,2].min()]
-    f.x = pts[:, 0]
-    f.y = pts[:, 1]
-    f.z = pts[:, 2]
-    if pts.shape[1] == 4:
-        f.intensity = pts[:, 3]
-    f.set_red(rgb[:, 0])
-    f.set_green(rgb[:, 1])
-    f.set_blue(rgb[:, 2])
-    f.close()
-
-def convert_wgs_to_utm(lon: float, lat: float):
-    """Based on lat and lng, return best utm epsg-code
-    https://stackoverflow.com/a/40140326/4556479"""
-    utm_band = str((math.floor((lon + 180) / 6 ) % 60) + 1)
-    if len(utm_band) == 1:
-        utm_band = '0'+utm_band
-    if lat >= 0:
-        epsg_code = '326' + utm_band
-        return epsg_code
-    epsg_code = '327' + utm_band
-    return epsg_code
-
-# %%
-
-def loadDEMclipForResampling(dem, xx, yy, tile_size_px):
-    kwargs = {'format' : 'VRT',
-              'srcWin' : [xx, yy, tile_size_px, tile_size_px]}
-
-    ds = gdal.Translate('', dem, **kwargs)
-    band = ds.GetRasterBand(1)
-    gt = ds.GetGeoTransform()
-    nan = band.GetNoDataValue()
-    # print(nan)
-
-    # read as array and set NaN
-    el = band.ReadAsArray().astype(float)
-    el[el == nan] = np.nan
-    # print(el.shape)
-
-    # ONLY IF COMPARING FULL TILE:
-    # if the shape ends in 1, then the tile had one east column and
-    # one south row removed:
-        # https://forum.sentinel-hub.com/t/copernicus-dem-data-available-on-aws/3027/2
-        # https://copernicus-dem-30m.s3.amazonaws.com/readme.html
-    # if el.shape[0] % 10 != 0:
-    #     # print('yup')
-    #     el = el[0:-1, 0:-1]
-    #     # print(el.shape)
-
-    # get pixel size
-    cols = el.shape[1]
-    rows = el.shape[0]
-    minx, maxy = gt[0], gt[3]
-    maxx, miny = gt[0] + gt[1] * cols, gt[3] + gt[5] * rows
-
-    # read crs
-    crs = CRS.from_wkt(ds.GetProjection()).to_epsg()
-
-    # get step in m if geographic projection
-    if crs == 4326:
-        print('converting to UTM coords')
-        epsg_code = convert_wgs_to_utm(minx, miny)
-        pp = Proj('EPSG:{}'.format(epsg_code))
-        proj = CRS.from_epsg(epsg_code).to_wkt()
-        minx, miny = pp(minx, miny)
-        maxx, maxy = pp(maxx, maxy)
-    psx = (maxx - minx) / cols
-    psy = (maxy - miny) / rows
-    step = np.round((psx + psy) / 2, 0)
-
-    minLon, maxLon, minLat, maxLat = minx, maxx, miny, maxy
-    pixel_size = step
-
-    # pixel_size = (((maxLon - minLon) / cols) + ((maxLat - minLat) / rows)) / 2
-    Lats = np.arange(minLat + (pixel_size / 2), maxLat, pixel_size)[::-1]
-    Lons = np.arange(minLon + (pixel_size / 2), maxLon, pixel_size)
-    gridLon, gridLat = np.meshgrid(Lons, Lats)
-
-    # close dataset
-    ds = None
-
-    return el, step, minLon, maxLon, minLat, maxLat, gridLon, gridLat
-
-def loadDEMclipForCartopy(dem, xx, yy, tile_size_px):
-    kwargs = {'format' : 'VRT',
-              'srcWin' : [xx, yy, tile_size_px, tile_size_px]}
-
-    ds = gdal.Translate('', dem, **kwargs)
-    band = ds.GetRasterBand(1)
-    gt = ds.GetGeoTransform()
-    nan = band.GetNoDataValue()
-    # print(nan)
-
-    # read as array and set NaN
-    el = band.ReadAsArray().astype(float)
-    el[el == nan] = np.nan
-    # print(el.shape)
-
-    # ONLY IF COMPARING FULL TILE:
-    # if the shape ends in 1, then the tile had one east column and
-    # one south row removed:
-        # https://forum.sentinel-hub.com/t/copernicus-dem-data-available-on-aws/3027/2
-        # https://copernicus-dem-30m.s3.amazonaws.com/readme.html
-    # if el.shape[0] % 10 != 0:
-    #     # print('yup')
-    #     el = el[0:-1, 0:-1]
-    #     # print(el.shape)
-
-    # get pixel size
-    cols = el.shape[1]
-    rows = el.shape[0]
-    minx, maxy = gt[0], gt[3]
-    maxx, miny = gt[0] + gt[1] * cols, gt[3] + gt[5] * rows
-
-    minLon, maxLon, minLat, maxLat = minx, maxx, miny, maxy
-
-    pixel_size = (((maxLon - minLon) / cols) + ((maxLat - minLat) / rows)) / 2
-    Lats = np.arange(minLat + (pixel_size / 2), maxLat, pixel_size)[::-1]
-    Lons = np.arange(minLon + (pixel_size / 2), maxLon, pixel_size)
-    gridLon, gridLat = np.meshgrid(Lons, Lats)
-
-    # read crs
-    crs = CRS.from_wkt(ds.GetProjection()).to_epsg()
-
-    # get step in m if geographic projection
-    if crs == 4326:
-        epsg_code = convert_wgs_to_utm((maxx + minx)/2, (maxy + miny)/2)
-        pp = Proj('EPSG:{}'.format(epsg_code))
-        proj = CRS.from_epsg(epsg_code).to_wkt()
-        minx, miny = pp(minx, miny)
-        maxx, maxy = pp(maxx, maxy)
-    psx = (maxx - minx) / cols
-    psy = (maxy - miny) / rows
-    step = np.round((psx + psy) / 2, 0)
-
-    # close dataset
-    ds = None
-
-    return el, psx, psy, minLon, maxLon, minLat, maxLat, gridLon, gridLat
-
-
-
-
-
-# %%
-def maxSquareRC(M):
-    """ expects a binary array of 0 and 1
-    https://www.geeksforgeeks.org/maximum-size-sub-matrix-with-all-1s-in-a-binary-matrix/"""
-    R = len(M) # no. of rows in M[][]
-    C = len(M[0]) # no. of columns in M[][]
-
-    S = [[0 for k in range(C)] for l in range(R)]
-    # here we have set the first row and column of S[][]
-
-    # Construct other entries
-    for r in range(1, R):
-        for c in range(1, C):
-            if (M[r][c] == 1):
-                S[r][c] = min(S[r][c-1], S[r-1][c],
-                              S[r-1][c-1]) + 1
-            else:
-                S[r][c] = 0
-
-    # Find the maximum entry and
-    # indices of maximum entry in S[][]
-    max_of_s = S[0][0]
-    max_r = 0
-    max_c = 0
-    for r in range(R):
-        for c in range(C):
-            if (max_of_s < S[r][c]):
-                max_of_s = S[r][c]
-                max_r = r
-                max_c = c
-
-    r0, r1, c0, c1 = max_r - max_of_s + 1, max_r, max_c - max_of_s + 1, max_c
-
-    return r0, r1, c0, c1
-
-
-
-
-# %% functions for hillshadeing
-
-# def horn_slope(dem, xx, yy, tile_size_px):
-#     kwargs = {'format' : 'VRT',
-#               'srcWin' : [xx, yy, tile_size_px, tile_size_px]}
-
-#     ds = gdal.Translate('', dem, **kwargs)
-#     band = ds.GetRasterBand(1)
-#     gt = ds.GetGeoTransform()
-#     nan = band.GetNoDataValue()
-#     # print(nan)
-
-#     # read as array and set NaN
-#     el = band.ReadAsArray().astype(float)
-
-
-
-def clip_dem(dem, dem_name, clipper):
-
-    # open the full dataset to pull out some metadata
-
-    # open raster
-    ds = gdal.Open(dem)
-    band = ds.GetRasterBand(1)
-    gt = ds.GetGeoTransform()
-    step = gt[1]
-
-    # create an in memory clip of the data for comparison purposes
-
-    kwargs = {'dstSRS' : 'EPSG:32719', 'xRes' : step, 'yRes' : step,
-              'resampleAlg' : 'bilinear', 'format' : 'VRT', 'dstNodata' : -9999,
-              'cutlineDSName' : clipper, 'cropToCutline' : 'True', 'targetAlignedPixels' : 'True'}
-
-    ds = gdal.Warp('', dem, **kwargs)
-    gt = ds.GetGeoTransform()
-    proj = ds.GetProjection()
-    band = ds.GetRasterBand(1)
-
-    # get the NaN value
-    nan = band.GetNoDataValue()
-    if nan == None:
-        nan = 0
-    print(nan)
-
-    # read as array and set NaN
-    el = band.ReadAsArray().astype(float)
-    el[el == nan] = np.nan
-
-    # remove nan rows / columns
-    el = el[~np.isnan(el).all(axis=1)]
-    el = el[:, ~np.isnan(el).all(axis=0)]
-    el = el[~np.isnan(el).any(axis=1)]
-
-    return el, step, nan, gt, proj
-
-
-def pyshedsDA_raster(dem):
+def CalculateChannelSlope(pts_array, slope_window_size=5):
     """
-    https://mattbartos.com/pysheds/accumulation.html
+    Clubb 2019 - JGR:ES
+    Modified from: https://github.com/UP-RS-ESP/river-clusters/blob/master/clustering.py
     """
 
-    # load the grid object
-    grid = Grid.from_raster(dem, data_name='dem')
+    grad = np.empty(len(pts_array))
+    slicer = (slope_window_size - 1)/2
 
-    # Fill depressions in DEM
-    grid.fill_depressions('dem', out_name='flooded_dem')
+    for index, x in enumerate(pts_array):
+        start_idx = index-slicer
+        if start_idx < 0:
+            start_idx=0
+        end_idx = index+slicer+1
+        if end_idx > len(pts_array):
+            end_idx = len(pts_array)
+        # find the rows above and below relating to the window size. We use whatever nodes
+        # are available to not waste the data.
+        this_slice = pts_array[int(start_idx):int(end_idx)]
+        # now regress this slice
+        x = this_slice[:,0]
+        y = this_slice[:,1]
+        slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
+        grad[index] = abs(slope)
 
-    # Resolve flats in DEM
-    grid.resolve_flats('flooded_dem', out_name='inflated_dem')
-
-    # Specify directional mapping
-    # See here: https://mattbartos.com/pysheds/flow-directions.html
-    dirmap = (64, 128, 1, 2, 4, 8, 16, 32)
-
-    # Compute flow directions
-    # -------------------------------------
-    grid.flowdir(data='inflated_dem', out_name='dir', dirmap=dirmap, routing='d8')
-
-    # Calculate flow accumulation
-    # --------------------------
-    areas = grid.cell_area(inplace=False)
-    grid.accumulation(data='dir', dirmap=dirmap, out_name='acc', weights=areas)
-    flowacc = grid.view('acc')
-
-    return flowacc
-
-
-def pyshedsDA_array(el, nan, gt, proj):
-    """
-    https://mattbartos.com/pysheds/accumulation.html
-    """
-    # get the projection as Proj4
-    srs = osr.SpatialReference()
-    srs.ImportFromWkt(proj)
-    proj4 = srs.ExportToProj4()
-    crs = Proj(proj4, preserve_units=True)
-
-    # set the affine transform
-    affine = rasterio.Affine(gt[1], gt[2], gt[0], gt[4], gt[5], gt[3])
-
-    # load the grid object
-    grid = Grid()
-    grid.add_gridded_data(data=el, data_name='dem',
-                              shape=el.shape,
-                              affine=affine,
-                              crs=crs,
-                              nodata=nan,
-                              mask=None)
-
-    # Fill depressions in DEM
-    grid.fill_depressions('dem', out_name='flooded_dem')
-
-    # Resolve flats in DEM
-    grid.resolve_flats('flooded_dem', out_name='inflated_dem')
-
-    # Specify directional mapping
-    # See here: https://mattbartos.com/pysheds/flow-directions.html
-    dirmap = (64, 128, 1, 2, 4, 8, 16, 32)
-
-    # Compute flow directions
-    # -------------------------------------
-    grid.flowdir(data='inflated_dem', out_name='dir', dirmap=dirmap, routing='d8')
-
-    # Calculate flow accumulation
-    # --------------------------
-    areas = grid.cell_area(inplace=False)
-    grid.accumulation(data='dir', dirmap=dirmap, out_name='acc', weights=areas)
-    flowacc = grid.view('acc')
-
-    return flowacc
-
-
-def pyshedsCatchment_array(el, nan, gt, proj, lon, lat):
-    """
-    https://mattbartos.com/pysheds/accumulation.html
-    """
-    # get the projection as Proj4
-    srs = osr.SpatialReference()
-    srs.ImportFromWkt(proj)
-    proj4 = srs.ExportToProj4()
-    crs = Proj(proj4, preserve_units=True)
-
-    # set the affine transform
-    affine = rasterio.Affine(gt[1], gt[2], gt[0], gt[4], gt[5], gt[3])
-
-    # load the grid object
-    grid = Grid()
-    grid.add_gridded_data(data=el, data_name='dem',
-                              shape=el.shape,
-                              affine=affine,
-                              crs=crs,
-                              nodata=nan,
-                              mask=None)
-
-    # Fill depressions in DEM
-    grid.fill_depressions('dem', out_name='flooded_dem')
-
-    # Resolve flats in DEM
-    grid.resolve_flats('flooded_dem', out_name='inflated_dem')
-
-    # Specify directional mapping
-    # See here: https://mattbartos.com/pysheds/flow-directions.html
-    dirmap = (64, 128, 1, 2, 4, 8, 16, 32)
-
-    # Compute flow directions
-    # -------------------------------------
-    grid.flowdir(data='inflated_dem', out_name='dir', dirmap=dirmap, routing='d8')
-
-    # Calculate flow accumulation
-    # --------------------------
-    areas = grid.cell_area(inplace=False)
-    grid.accumulation(data='dir', dirmap=dirmap, out_name='acc', weights=areas)
-    flowacc = grid.view('acc')
-
-    # Delineate catchment
-    # --------------------------
-    grid.catchment(data='dir', x=lon, y=lat,
-                   out_name='catch',
-                   recursionlimit=15000, xytype='label')
-    catch = grid.view('catch')
-
-    return catch
-
-
-def smoothed_hs_calc(el, step, azimuths=(0, 90, 180, 270), angle_altitudes=(15, 45, 75), sigma=0.5, filt_w=3):
-
-    hillshades = np.zeros((el.shape[0], el.shape[1], len(azimuths), len(angle_altitudes)))
-    for ang_num, ang in enumerate(angle_altitudes):
-        for az_num, az in enumerate(azimuths):
-            hs = hillshade(el, step, azimuth=az, angle_altitude=ang)
-            hillshades[:,:,az_num,ang_num] = hs[:,:]
-
-    # also generate "smoothed" hillshades
-    t = (((filt_w - 1)/2)-0.5)/sigma # https://stackoverflow.com/questions/25216382/gaussian-filter-in-scipy
-    el_sm = ndi.gaussian_filter(el, sigma, truncate=t)
-    hillshades_sm = np.zeros((el.shape[0], el.shape[1], len(azimuths), len(angle_altitudes)))
-    for ang_num, ang in enumerate(angle_altitudes):
-        for az_num, az in enumerate(azimuths):
-            hs = hillshade(el_sm, step, azimuth=az, angle_altitude=ang)
-            hillshades_sm[:,:,az_num,ang_num] = hs[:,:]
-
-    return hillshades, hillshades_sm
-
-# %% poly fit function
-
-
+    return grad
 
 

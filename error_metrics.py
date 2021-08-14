@@ -16,7 +16,7 @@ from DemErrorFunctions import *
 #### General parameters ####
 
 # DEM to use
-dem = 'data/nasadem30_merge_egm96.tif'
+dem = 'data/nasadem_s25w068.tif'
 
 # Name for the plots
 dem_name = 'SRTM-NASADEM'
@@ -30,10 +30,10 @@ step = 1 # 1 arcsec ~ 30 m pixels
 # Size of tiles to calculate metrics on
 # NOTE: for tiles larger than ~400x400 pixels the RMSE plane fitting calculation may
 # take a long time. For larger tiles (e.g. 20-km or more for 30-m DEMs), switch OFF this metric
-tile_size_km = 50
+tile_size_km = 10
 
 # ON/OFF switch for calculating and plotting only HPHS
-only_HPHS = True # True to only do HPHS calc.
+only_HPHS = False # True to only do HPHS calc. / False to do dR, RMSE, and HPHS (may be slow!)
 
 # Number of tiles to run metric calculation and plot on
 # These are randomly selected from a shuffled list of tiles
@@ -49,7 +49,7 @@ sigma = 0.5
     
 #### RMSE parameters ####
 
-# fitting window: 1=3x3 window, 2=5x5, 3=7x7
+# fitting window in terms of maximum distance from center pixel: 1=3x3 window, 2=5x5, 3=7x7
 win = 1 
 
 
@@ -123,7 +123,7 @@ for xx, yy in xys:
         # get the HPHS metric
         # NOTE in this case we use the step size in meters for calculating the hillshades
         
-        # this uses the average step size
+        # this uses the average step size and would be appropriate for UTM resampled input
         # hphs, hs = HPHS(el, step_meters, kernel, azimuths, angles)
         
         # this is a more correct way using the exact latitude and longitude step size (which differ)

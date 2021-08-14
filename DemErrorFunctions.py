@@ -2,15 +2,11 @@ import random
 import os
 import math
 import numpy as np
-from osgeo import gdal, osr
+from osgeo import gdal
 import scipy
 from scipy import stats
 from scipy import ndimage as ndi
 from pyproj import Proj, CRS
-from pysheds.grid import Grid
-import rasterio
-from matplotlib import pyplot as plt
-import matplotlib.colors as mplcol
 
 
 # %% DEM LOADING AND CLIPPING FUNCTIONS

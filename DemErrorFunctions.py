@@ -70,12 +70,10 @@ def getDEMtiles(dem, tile_size_km):
 
     # read crs
     crs = int(osr.SpatialReference(wkt=ds.GetProjection()).GetAttrValue('AUTHORITY', 1))
-    print(crs)
 
     # get step in m if geographic projection
     if crs == 4326:
         epsg_code = convert_wgs_to_utm(minx, miny)
-        print(epsg_code)
         pp = Proj('EPSG:{}'.format(epsg_code))
         # proj = CRS.from_epsg(epsg_code).to_wkt()
         minx, miny = pp(minx, miny)
@@ -83,7 +81,6 @@ def getDEMtiles(dem, tile_size_km):
     psx = (maxx - minx) / cols
     psy = (maxy - miny) / rows
     step_meters = np.round((psx + psy) / 2, 0)
-    print(psx, psy, step_meters)
 
     # close dataset
     ds = None

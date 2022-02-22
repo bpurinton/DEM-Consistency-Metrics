@@ -6,6 +6,8 @@ Created on Tue Jul  6 15:22:14 2021
 """
 import os
 import numpy as np
+import itertools
+from skimage.util.shape import view_as_windows
 from matplotlib import pyplot as plt
 from joblib import Parallel, delayed
 import multiprocessing
@@ -49,8 +51,8 @@ sigma = 0.5
     
 #### RMSE parameters ####
 
-# fitting window in terms of maximum distance from center pixel: 1=3x3 window, 2=5x5, 3=7x7
-win = 1 
+# fitting window: 3=3x3 window, 5=5x5, 7=7x7, etc.
+win = 3
 
 
 #### HPHS parameters ####
@@ -103,20 +105,15 @@ for xx, yy in xys:
         
         
         # get the RMSE (this is slow even with threading, but faster with more threads)
-        Xs, Ys = np.meshgrid(np.linspace(0, el.shape[1], el.shape[1]).astype(int)*step, 
-                             np.linspace(0, el.shape[0], el.shape[0]).astype(int)*step)
-        pts_all = []
-        for i in range(win, Xs.shape[0] - win):
-            for k in range(win, Xs.shape[1] - win):
-                X_ = Xs[i-win:i+win+1, k-win:k+win+1].flatten()
-                Y_ = Ys[i-win:i+win+1, k-win:k+win+1].flatten()
-                Z_ = el[i-win:i+win+1, k-win:k+win+1].flatten()
-                pts = np.transpose((X_, Y_, Z_))
-                pts_all.append(pts)
-        foo = Parallel(n_jobs=num_cores, verbose=1)(delayed(plane_fit_RMSE)(pts) for pts in pts_all)
+        elb = view_as_windows(el, window_shape=(win, win))
+        elb = elb.reshape(elb.shape[0]*elb.shape[1], -1)
+        xs = np.array(list(range(win))*win)
+        ys = np.array(list(itertools.chain(*[[i]*win for i in range(win)])))
+        
+        foo = Parallel(n_jobs=num_cores, verbose=1)(delayed(plane_fit_RMSE)(np.array([xs, ys, e]).T) for e in elb)
         rmse = np.empty(el.shape)*np.nan
-        new_shape = rmse[win:Xs.shape[0] - win, win:Xs.shape[1] - win].shape
-        rmse[win:Xs.shape[0] - win, win:Xs.shape[1] - win] = np.reshape(foo, new_shape)
+        new_shape = rmse[win//2:el.shape[0] - win//2, win//2:el.shape[1] - win//2].shape
+        rmse[win//2:el.shape[0] - win//2, win//2:el.shape[1] - win//2] = np.reshape(foo, new_shape)
         # NOTE: the final result has NaN values on the edges
             
         

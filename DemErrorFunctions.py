@@ -2,7 +2,7 @@ import random
 import os
 import math
 import numpy as np
-from osgeo import gdal
+from osgeo import gdal, osr
 import scipy
 from scipy import stats
 from scipy import ndimage as ndi
@@ -69,18 +69,21 @@ def getDEMtiles(dem, tile_size_km):
     maxx, miny = gt[0] + gt[1] * cols, gt[3] + gt[5] * rows
 
     # read crs
-    crs = CRS.from_wkt(ds.GetProjection()).to_epsg()
+    crs = int(osr.SpatialReference(wkt=ds.GetProjection()).GetAttrValue('AUTHORITY', 1))
+    print(crs)
 
     # get step in m if geographic projection
     if crs == 4326:
         epsg_code = convert_wgs_to_utm(minx, miny)
+        print(epsg_code)
         pp = Proj('EPSG:{}'.format(epsg_code))
-        proj = CRS.from_epsg(epsg_code).to_wkt()
+        # proj = CRS.from_epsg(epsg_code).to_wkt()
         minx, miny = pp(minx, miny)
         maxx, maxy = pp(maxx, maxy)
     psx = (maxx - minx) / cols
     psy = (maxy - miny) / rows
     step_meters = np.round((psx + psy) / 2, 0)
+    print(psx, psy, step_meters)
 
     # close dataset
     ds = None
@@ -360,14 +363,17 @@ def plane_fit_RMSE(points):
         Root mean square error of plane fit.
 
     """
-    ctr = points.mean(axis=0)
-    points = points - ctr
-    A = np.c_[points[:,0], points[:,1], np.ones(points.shape[0])]
-    p1_C,_,_,_ = scipy.linalg.lstsq(A, points[:,2], lapack_driver='gelsy')    # coefficients
-    Z_pts = p1_C[0]*points[:,0] + p1_C[1]*points[:,1] + p1_C[2]
-    p1_dz = points[:,2] - Z_pts
-    mse = (np.square(p1_dz)).mean(axis=0)
-    p1_rmse = np.sqrt(mse)
+    if not np.isnan(np.sum(points[:,2])):
+        ctr = points.mean(axis=0)
+        points = points - ctr
+        A = np.c_[points[:,0], points[:,1], np.ones(points.shape[0])]
+        p1_C,_,_,_ = scipy.linalg.lstsq(A, points[:,2], lapack_driver='gelsy')    # coefficients
+        Z_pts = p1_C[0]*points[:,0] + p1_C[1]*points[:,1] + p1_C[2]
+        p1_dz = points[:,2] - Z_pts
+        mse = (np.square(p1_dz)).mean(axis=0)
+        p1_rmse = np.sqrt(mse)
+    else:
+        p1_rmse = np.nan
 
     return p1_rmse
 
